@@ -5,11 +5,12 @@ Shader "WhackAMole/Text3D"
     Properties
     {
         _MainTex ("Font Texture", 2D) = "white" {}
+        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("ZTest (LessEqual=4, Always=8: 화면 고정 HUD용)", Float) = 4
     }
     SubShader
     {
         Tags { "Queue" = "Transparent" "RenderType" = "Transparent" "IgnoreProjector" = "True" }
-        Lighting Off Cull Off ZWrite Off ZTest LEqual
+        Lighting Off Cull Off ZWrite Off ZTest [_ZTest]
         Blend SrcAlpha OneMinusSrcAlpha
 
         Pass

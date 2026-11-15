@@ -76,6 +76,8 @@ public static class RangeBuilder
         AddSwitcher(root, "WhackAMole");
         // 7) 아두이노: 총 진동을 하우징 진동 모듈로도 전송 (VIB <세기> <ms>)
         AddArduino(root);
+        // 8) 헤드셋 시야 오른쪽 아래 HUD (남은 탄 · 방금 점수)
+        AddHud(mgr);
 
         SetupRenderSettings(root);
         EditorSceneManager.MarkSceneDirty(scene);
@@ -241,7 +243,8 @@ public static class RangeBuilder
         L("BoothLight", LightType.Point, new Vector3(0f, 2.9f, 0.1f), Vector3.zero, 3.6f, 6.5f, 0f, cool, LightShadows.Soft);
         L("BoothLightL", LightType.Point, new Vector3(-2.4f, 2.9f, 0.1f), Vector3.zero, 2.6f, 5.5f, 0f, cool, LightShadows.None);
         L("BoothLightR", LightType.Point, new Vector3(2.4f, 2.9f, 0.1f), Vector3.zero, 2.6f, 5.5f, 0f, cool, LightShadows.None);
-        L("TargetSpot10", LightType.Spot, new Vector3(0.7f, 3.05f, 7.0f), new Vector3(0f, 1.3f, 10.2f), 15f, 10f, 60f, warm, LightShadows.Soft);
+        // 사격 거리 7 m 표적을 비추는 스포트라이트 (표적 앞 위쪽, 레일 그림자를 피해 옆으로 비켜 섬)
+        L("TargetSpot7", LightType.Spot, new Vector3(0.7f, 3.05f, 4.0f), new Vector3(0f, 1.3f, 7.2f), 15f, 10f, 60f, warm, LightShadows.Soft);
         L("RangeSpotFar", LightType.Spot, new Vector3(0f, 3.05f, 11f), new Vector3(0f, 0.8f, 14f), 9f, 8f, 85f, warm, LightShadows.None);
         L("RangeFill", LightType.Point, new Vector3(0f, 2.8f, 4.5f), new Vector3(0f, 0f, 5f), 3f, 9f, 0f, warm, LightShadows.None);
         L("RangeFill2", LightType.Point, new Vector3(0f, 2.8f, 8.5f), new Vector3(0f, 0f, 8f), 2.4f, 8f, 0f, warm, LightShadows.None);
@@ -402,6 +405,85 @@ public static class RangeBuilder
         // 예전 버전의 그립 진행 표시 글자는 제거
         foreach (var tm in Object.FindObjectsByType<TextMesh>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             if (tm.name == "SwitchProgress") Object.DestroyImmediate(tm.gameObject);
+    }
+
+    // 헤드셋 시야 오른쪽 아래에 머리를 따라다니는 HUD (XR 카메라의 자식)
+    //   위: "방금 9점" (크게, 쏠 때마다 톡 튐)   아래: "남은 탄 7 / 10"
+    //   항상 맨 위에 그림(ZTest Always) + 글자 그림자 → 총·사격대에 가리지 않고 어디서나 읽힘
+    public static void AddHud(ShootingRangeManager mgr)
+    {
+        var cam = GameObject.Find("XR Origin (VR)")?.GetComponentInChildren<Camera>(true);
+        if (cam == null || mgr == null) return;
+        var old = cam.transform.Find("ShotHud");
+        if (old != null) Object.DestroyImmediate(old.gameObject);
+        var hud = new GameObject("ShotHud").transform;
+        hud.SetParent(cam.transform, false);
+        hud.localPosition = new Vector3(0.4f, -0.33f, 0.6f);     // 시야 오른쪽 아래 (오른쪽 약 34°, 아래 약 29°, 레인 모니터 아래) – 위치는 ShotHud에서 조절
+        hud.localRotation = Quaternion.LookRotation(hud.localPosition.normalized, Vector3.up); // 눈을 정면으로 향함
+
+        var kr = AssetDatabase.LoadAssetAtPath<Font>("Assets/WhackAMole/Fonts/NotoSansKR.ttf");
+        if (kr == null) kr = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        var mat = HudTextMaterial(kr);
+        TextMesh Make(string n, Vector3 pos, float size, Color c)
+        {
+            var g = new GameObject(n);
+            g.transform.SetParent(hud, false);
+            g.transform.localPosition = pos;
+            var tm = g.AddComponent<TextMesh>();
+            tm.font = kr; g.GetComponent<MeshRenderer>().sharedMaterial = mat;
+            tm.fontSize = 64; tm.characterSize = size; tm.color = c; tm.fontStyle = FontStyle.Bold; // 굵게
+            tm.anchor = TextAnchor.LowerRight; tm.alignment = TextAlignment.Right;
+            // 검은 테두리: 8방향으로 살짝 밀린 진한 글자 (뒤쪽)
+            float o = size * 0.4f; // 테두리 두께 (글자 크기에 비례)
+            for (int k = 0; k < 8; k++)
+            {
+                float a = k * Mathf.PI / 4f;
+                var s = new GameObject("Outline" + k);
+                s.transform.SetParent(g.transform, false);
+                s.transform.localPosition = new Vector3(Mathf.Cos(a) * o, Mathf.Sin(a) * o, 0.001f);
+                var st = s.AddComponent<TextMesh>();
+                st.font = kr; s.GetComponent<MeshRenderer>().sharedMaterial = mat;
+                st.fontSize = 64; st.characterSize = size; st.color = new Color(0f, 0f, 0f, 0.9f); st.fontStyle = FontStyle.Bold;
+                st.anchor = TextAnchor.LowerRight; st.alignment = TextAlignment.Right;
+            }
+            return tm;
+        }
+        mgr.hudLast = Make("LastScore", new Vector3(0f, 0.04f, 0f), 0.0075f, Color.white);
+        mgr.hudAmmo = Make("Ammo", Vector3.zero, 0.006f, Color.white);
+        mgr.hudAmmo.text = "남은 탄  10 / 10";
+        mgr.hudLast.text = ""; mgr.hudLast.gameObject.SetActive(false);
+        // 글자 뒤 반투명 어두운 판 (글자에 맞춰 크기 자동 조절)
+        var panel = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        panel.name = "Panel";
+        Object.DestroyImmediate(panel.GetComponent<Collider>());
+        panel.transform.SetParent(hud, false);
+        panel.transform.localPosition = new Vector3(-0.1f, 0.03f, 0.004f);
+        panel.transform.localScale = new Vector3(0.22f, 0.1f, 1f);
+        const string pPath = "Assets/WhackAMole/Materials/Text/HudPanel.mat";
+        var pm = AssetDatabase.LoadAssetAtPath<Material>(pPath);
+        if (pm == null) { pm = new Material(Shader.Find("WhackAMole/HudPanel")); AssetDatabase.CreateAsset(pm, pPath); }
+        pm.SetColor("_Color", new Color(0.02f, 0.03f, 0.05f, 0.7f));
+        EditorUtility.SetDirty(pm);
+        var pr = panel.GetComponent<MeshRenderer>(); pr.sharedMaterial = pm; pr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mgr.hudPanel = panel.transform;
+        EditorUtility.SetDirty(mgr);
+    }
+
+    static Material HudTextMaterial(Font f)
+    {
+        string path = $"Assets/WhackAMole/Materials/Text/Text3D_HUD_{f.name}.mat";
+        var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (m == null)
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/WhackAMole/Materials/Text")) AssetDatabase.CreateFolder("Assets/WhackAMole/Materials", "Text");
+            m = new Material(Shader.Find("WhackAMole/Text3D"));
+            AssetDatabase.CreateAsset(m, path);
+        }
+        m.mainTexture = f.material.mainTexture;
+        m.SetFloat("_ZTest", (float)UnityEngine.Rendering.CompareFunction.Always);
+        m.renderQueue = 4000; // Overlay – 다른 투명 물체 뒤에 그려 항상 보이게
+        EditorUtility.SetDirty(m);
+        return m;
     }
 
     // 아두이노 연결 + 진동 전달 (두더지 씬과 같은 포트·속도를 기본으로)

@@ -45,8 +45,8 @@ public static class WhackMoleModels
         col.direction = 1; col.radius = 0.05f; col.height = 0.14f; col.center = Vector3.zero;
 
         // 상반신을 플레이어(-Z) 쪽으로 향하게. 귀여운 두더지(드럼 스틱용) + 초록 우락부락 두더지(쇠 망치용)
-        Transform normal = BuildFigure(body, "Figure", new Vector3(0f, -0.056f, 0f), 0.2f, Quaternion.Euler(0f, 180f, 0f), false);
-        Transform bad = BuildBadFigure(body, "BadFigure", new Vector3(0f, -0.056f, 0f), 0.2f, Quaternion.Euler(0f, 180f, 0f), false);
+        Transform normal = BuildFigure(body, "Figure", new Vector3(0f, -0.056f, 0f), 0.2f, Quaternion.Euler(0f, 180f, 0f), true);
+        Transform bad = BuildBadFigure(body, "BadFigure", new Vector3(0f, -0.056f, 0f), 0.2f, Quaternion.Euler(0f, 180f, 0f), true);
         bad.gameObject.SetActive(false);
 
         Undo.RecordObject(m, "Restyle mole");
@@ -92,65 +92,13 @@ public static class WhackMoleModels
 
     // ───────────────────────── 디자인 ─────────────────────────
 
-    // 상반신 두더지 (몸통 + 배 + 눈 + 코 + 앞니 + 앞발). 기준: 바닥 = y 0, 얼굴 = +Z
+    // 상반신 두더지 – HD 모델(WhackMoleHD)로 만듦. 기준: 바닥 = y 0, 얼굴 = +Z
     public static Transform BuildFigure(Transform parent, string name, Vector3 pos, float scale, Quaternion rot, bool shadows = true)
-    {
-        LoadMaterials();
-        Transform m = Group(parent, name, pos, rot, scale);
-        Prim(PrimitiveType.Capsule, "Body", m, new Vector3(0f, 0.25f, 0f), new Vector3(0.5f, 0.32f, 0.45f), fur, shadows);
-        Prim(PrimitiveType.Sphere, "Belly", m, new Vector3(0f, 0.22f, 0.15f), new Vector3(0.34f, 0.36f, 0.2f), skin, false);
-        foreach (float x in new[] { -0.09f, 0.09f })
-        {
-            Prim(PrimitiveType.Sphere, "Eye", m, new Vector3(x, 0.44f, 0.19f), Vector3.one * 0.07f, black, false);
-            Prim(PrimitiveType.Sphere, "EyeShine", m, new Vector3(x + 0.012f, 0.455f, 0.222f), Vector3.one * 0.022f, white, false);
-            Prim(PrimitiveType.Sphere, "Paw", m, new Vector3(x * 2.1f, 0.12f, 0.2f), new Vector3(0.14f, 0.07f, 0.12f), skin, false);
-        }
-        Prim(PrimitiveType.Sphere, "Nose", m, new Vector3(0f, 0.37f, 0.25f), new Vector3(0.11f, 0.08f, 0.09f), nose, false);
-        Prim(PrimitiveType.Cube, "Teeth", m, new Vector3(0f, 0.3f, 0.225f), new Vector3(0.05f, 0.04f, 0.01f), white, false);
-        return m;
-    }
+        => WhackMoleHD.Build(parent, name, pos, scale, rot, shadows, false);
 
-    // 초록 우락부락 두더지 (쇠 망치용). 같은 크기 틀(바닥 = y 0, 얼굴 = +Z)에 넓은 어깨, 성난 눈썹, 빨간 눈, 송곳니, 흉터, 주먹, 머리 가시
+    // 초록 우락부락 두더지 (쇠 망치용) – HD 모델. 넓은 어깨, 성난 눈썹, 빨간 눈, 송곳니, 흉터, 머리 가시
     public static Transform BuildBadFigure(Transform parent, string name, Vector3 pos, float scale, Quaternion rot, bool shadows = true)
-    {
-        LoadMaterials();
-        Transform m = Group(parent, name, pos, rot, scale);
-        Prim(PrimitiveType.Capsule, "Body", m, new Vector3(0f, 0.25f, 0f), new Vector3(0.56f, 0.33f, 0.5f), badSkin, shadows);
-        Prim(PrimitiveType.Sphere, "Chest", m, new Vector3(0f, 0.19f, 0.16f), new Vector3(0.38f, 0.32f, 0.22f), badChest, false);
-        Prim(PrimitiveType.Cube, "Belt", m, new Vector3(0f, 0.08f, 0.19f), new Vector3(0.46f, 0.05f, 0.16f), badDark, false);
-        // 머리 위 가시
-        for (int i = -1; i <= 1; i++)
-        {
-            var spike = PrimT(PrimitiveType.Cube, "Spike", m, new Vector3(i * 0.1f, 0.57f - Mathf.Abs(i) * 0.03f, -0.02f), Vector3.one * 0.07f, badDark, false);
-            spike.localRotation = Quaternion.Euler(45f, 0f, 45f + i * 12f);
-        }
-        foreach (float sx in new[] { -1f, 1f })
-        {
-            // 떡 벌어진 어깨와 큰 주먹
-            Prim(PrimitiveType.Sphere, "Shoulder", m, new Vector3(sx * 0.21f, 0.33f, 0f), new Vector3(0.22f, 0.2f, 0.22f), badSkin, false);
-            Prim(PrimitiveType.Sphere, "Fist", m, new Vector3(sx * 0.2f, 0.12f, 0.2f), new Vector3(0.17f, 0.13f, 0.15f), badDark, false);
-            // 빨간 눈 (흰자 + 빨간 눈동자) - 귀여운 두더지보다 작고 가늘게
-            Prim(PrimitiveType.Sphere, "Eye", m, new Vector3(sx * 0.085f, 0.43f, 0.195f), new Vector3(0.075f, 0.055f, 0.05f), white, false);
-            Prim(PrimitiveType.Sphere, "Pupil", m, new Vector3(sx * 0.08f, 0.428f, 0.222f), Vector3.one * 0.032f, badEye, false);
-            // 성난 V자 눈썹 (안쪽이 낮음)
-            var brow = PrimT(PrimitiveType.Cube, "Brow", m, new Vector3(sx * 0.085f, 0.475f, 0.215f), new Vector3(0.13f, 0.035f, 0.04f), badDark, false);
-            brow.localRotation = Quaternion.Euler(0f, 0f, sx * 22f);
-            // 아래로 삐죽 나온 송곳니
-            var fang = PrimT(PrimitiveType.Cube, "Fang", m, new Vector3(sx * 0.045f, 0.275f, 0.24f), new Vector3(0.022f, 0.04f, 0.012f), white, false);
-            fang.localRotation = Quaternion.Euler(0f, 0f, 45f);
-        }
-        Prim(PrimitiveType.Sphere, "Nose", m, new Vector3(0f, 0.37f, 0.255f), new Vector3(0.13f, 0.09f, 0.1f), badDark, false);
-        Prim(PrimitiveType.Cube, "Mouth", m, new Vector3(0f, 0.3f, 0.238f), new Vector3(0.15f, 0.022f, 0.01f), black, false);
-        // 얼굴 흉터 (사선 + 꿰맨 자국)
-        var s1 = PrimT(PrimitiveType.Cube, "Scar", m, new Vector3(-0.14f, 0.42f, 0.2f), new Vector3(0.014f, 0.11f, 0.01f), scar, false);
-        s1.localRotation = Quaternion.Euler(0f, -30f, 28f);
-        for (int i = -1; i <= 1; i++)
-        {
-            var st = PrimT(PrimitiveType.Cube, "Stitch", m, new Vector3(-0.14f + i * 0.022f, 0.42f - i * 0.04f, 0.202f), new Vector3(0.04f, 0.008f, 0.008f), scar, false);
-            st.localRotation = Quaternion.Euler(0f, -30f, 28f);
-        }
-        return m;
-    }
+        => WhackMoleHD.Build(parent, name, pos, scale, rot, shadows, true);
 
     // 구멍에서 빼꼼 내미는 머리 (같은 디자인의 얼굴 + 귀 + 구멍 가장자리를 잡은 앞발). 기준: 머리 중심 = 원점, 얼굴 = +Z
     public static Transform BuildPeekHead(Transform parent, string name, Vector3 pos, float scale, Quaternion rot)

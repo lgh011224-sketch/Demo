@@ -24,7 +24,7 @@ public class ShootingRangeManager : MonoBehaviour
     [Tooltip("대기 위치 (사수로부터 m)")]
     public float nearDistance = 1.8f;
     [Tooltip("사격 거리 (m)")]
-    public float farDistance = 10f;
+    public float farDistance = 7f;
     public float carrierSpeed = 2.4f;
 
     [Header("총")]
@@ -48,7 +48,18 @@ public class ShootingRangeManager : MonoBehaviour
     public TextMesh monitorText;
     public TextMesh monitorScore;
 
+    [Header("시야 HUD (헤드셋 화면 오른쪽 아래, 머리를 따라다님)")]
+    [Tooltip("남은 탄 글자")]
+    public TextMesh hudAmmo;
+    [Tooltip("방금 쏜 점수 글자 (쏠 때마다 살짝 튀어 커짐)")]
+    public TextMesh hudLast;
+    [Tooltip("글자 뒤 반투명 판 (글자 크기에 맞춰 자동으로 늘어남)")]
+    public Transform hudPanel;
+    public Vector2 hudPanelPadding = new Vector2(0.018f, 0.012f);
+
     public State Current { get; private set; } = State.Parked;
+    float hudPopTime = -10f;
+    Vector3 hudLastScale = Vector3.one;
 
     int roundsLeft, total, shots;
     int lastScore = -1;
@@ -60,6 +71,7 @@ public class ShootingRangeManager : MonoBehaviour
     {
         roundsLeft = roundsPerSession;
         SetCarrier(nearDistance);
+        if (hudLast != null) hudLastScale = hudLast.transform.localScale;
         UpdateMonitor();
     }
 
@@ -161,6 +173,7 @@ public class ShootingRangeManager : MonoBehaviour
         }
         lastScore = score;
         total += score;
+        hudPopTime = Time.time;
         if (roundsLeft <= 0) autoReturnAt = Time.time + 1.5f; // 다 쏘면 잠시 후 표적이 돌아옴
     }
 
@@ -187,8 +200,60 @@ public class ShootingRangeManager : MonoBehaviour
         markers.Clear();
     }
 
+    // 헤드셋 시야 오른쪽 아래 HUD: 남은 탄 · 방금 점수
+    void UpdateHud()
+    {
+        if (hudAmmo != null)
+        {
+            hudAmmo.text = $"남은 탄  {roundsLeft} / {roundsPerSession}";
+            hudAmmo.color = roundsLeft == 0 ? new Color(1f, 0.45f, 0.4f) : roundsLeft <= 3 ? new Color(1f, 0.8f, 0.3f) : Color.white;
+        }
+        if (hudLast != null)
+        {
+            hudLast.gameObject.SetActive(lastScore >= 0);
+            hudLast.text = lastScore == 0 ? "빗나감" : $"방금  {lastScore}점";
+            hudLast.color = lastScore >= 9 ? new Color(1f, 0.85f, 0.2f) : lastScore == 0 ? new Color(1f, 0.45f, 0.4f) : Color.white;
+            float k = Mathf.Clamp01((Time.time - hudPopTime) / 0.25f);
+            hudLast.transform.localScale = hudLastScale * (1f + Mathf.Sin(k * Mathf.PI) * 0.35f);
+        }
+        // 테두리 글자(자식)도 같은 내용으로
+        foreach (var t in new[] { hudAmmo, hudLast })
+            if (t != null)
+                foreach (var s in t.GetComponentsInChildren<TextMesh>(true))
+                    if (s != t) s.text = t.text;
+        FitHudPanel();
+    }
+
+    // 반투명 판을 보이는 글자 둘레에 맞춤 (HUD 로컬 좌표 기준)
+    void FitHudPanel()
+    {
+        if (hudPanel == null || hudPanel.parent == null) return;
+        Transform space = hudPanel.parent;
+        bool any = false;
+        Vector2 min = Vector2.zero, max = Vector2.zero;
+        foreach (var t in new[] { hudAmmo, hudLast })
+        {
+            if (t == null || !t.gameObject.activeInHierarchy) continue;
+            var r = t.GetComponent<MeshRenderer>();
+            Bounds b = r.localBounds; // 글자 자체 좌표 기준 (회전 때문에 커지지 않게)
+            for (int i = 0; i < 4; i++)
+            {
+                Vector3 c = b.center + Vector3.Scale(b.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, 0f));
+                Vector3 l = space.InverseTransformPoint(t.transform.TransformPoint(c));
+                if (!any) { min = max = l; any = true; }
+                else { min = Vector2.Min(min, l); max = Vector2.Max(max, l); }
+            }
+        }
+        hudPanel.gameObject.SetActive(any);
+        if (!any) return;
+        Vector2 size = max - min + hudPanelPadding * 2f, center = (min + max) * 0.5f;
+        hudPanel.localPosition = new Vector3(center.x, center.y, 0.004f);
+        hudPanel.localScale = new Vector3(size.x, size.y, 1f);
+    }
+
     void UpdateMonitor()
     {
+        UpdateHud();
         if (monitorText != null)
         {
             string state = Current switch

@@ -1,4 +1,9 @@
 // 두더지 게임 전체 진행
+// ── 단계 진행 (useStages, 오락실 방식) ──────────────────────────────
+//   A → 3·2·1·GO! → 1단계(30초): 귀여운 두더지만, 드럼 스틱. 한 마리 5점, 20마리 잡으면 즉시 통과 (못 잡으면 게임 오버)
+//   → (자동) 1단계 CLEAR·점수 → "STAGE 2 / HAMMER TIME!" + 변신 이펙트로 망치로 교체 + 아두이노 hammerCommand(하우징 변형)
+//   → 3·2·1·GO! → 2단계(30초): 초록 두더지만, 쇠 망치 → 끝나면 1단계+2단계 총점
+// ────────────────────────────────────────────────────────────────
 // 도구: 드럼 스틱(Wood) / 쇠 망치(Hammer)   ※ 사격(Gun)은 별도 씬으로 분리 예정 (allowGunMode로만 켜짐)
 // 두더지: 귀여운 갈색 두더지 = 드럼 스틱으로만, 초록 우락부락 두더지 = 쇠 망치로만 잡힘.
 //         틀린 도구로 치면 두더지가 고개를 저으며 버팀 (WRONG + MISS로 기록)
@@ -48,14 +53,31 @@ public class WhackGameManager : MonoBehaviour
 
     [Header("게임 설정")]
     public float roundSeconds = 60f;
-    public float spawnIntervalMin = 0.6f;
-    public float spawnIntervalMax = 1.2f;
+    [Tooltip("다음 두더지가 올라오기까지 간격 (s, 최소~최대 사이 무작위)")]
+    public float spawnIntervalMin = 0.8f;
+    public float spawnIntervalMax = 1.5f;
     [Tooltip("두더지가 올라와 머무는 시간 (s)")]
-    public float moleStayTime = 1.0f;
+    public float moleStayTime = 1.3f;
     [Tooltip("동시에 올라와 있을 수 있는 최대 두더지 수")]
     public int maxMolesUp = 2;
     [Tooltip("올라오는 두더지 중 초록 우락부락 두더지(쇠 망치용)의 비율 (0~1)")]
     [Range(0f, 1f)] public float badMoleRatio = 0.4f;
+
+    [Header("단계 (오락실 방식)")]
+    [Tooltip("켜면 1단계(귀여운 두더지·드럼 스틱) → 2단계(초록 두더지·망치)로 진행. 끄면 예전처럼 섞여 나오는 한 판")]
+    public bool useStages = true;
+    public float stage1Seconds = 30f;
+    public float stage2Seconds = 30f;
+    [Tooltip("두더지 한 마리당 점수")]
+    public int pointsPerMole = 5;
+    [Tooltip("1단계 통과 기준 (잡은 두더지 수)")]
+    public int stage1Goal = 20;
+    [Tooltip("1단계 CLEAR와 점수를 보여 주는 시간 (s)")]
+    public float clearShowSeconds = 3f;
+    [Tooltip("2단계 안내 + 변신 이펙트 시간 (s) – 하우징이 변형될 시간")]
+    public float stage2IntroSeconds = 4f;
+    [Tooltip("도구 변신 이펙트 (ToolRoot에 붙어 있음)")]
+    public ToolTransformFx transformFx;
 
     [Header("맞혔을 때 진동 (컨트롤러 버전)")]
     [Tooltip("귀여운 두더지를 맞혔을 때 진동 세기 (0~1)")]
@@ -69,11 +91,11 @@ public class WhackGameManager : MonoBehaviour
     public string hitMessage = "HIT";
     public string buttonMessage = "BTN";
 
-    [Header("아두이노로 보내는 명령 (모듈 버전, 여러 개는 ; 로 구분)")]
-    [Tooltip("나무 망치 모드로 바꿀 때 모듈 형태 변경 명령")]
-    public string woodCommand = "";
-    [Tooltip("쇠 망치 모드로 바꿀 때 모듈 형태 변경 명령")]
-    public string hammerCommand = "";
+    [Header("아두이노로 보내는 명령 (여러 개는 ; 로 구분, 아두이노 오브젝트가 켜져 있으면 전송)")]
+    [Tooltip("드럼 스틱으로 바꿀 때 하우징 형태 변경 명령")]
+    public string woodCommand = "MODE STICK";
+    [Tooltip("쇠 망치로 바꿀 때 하우징 형태 변경 명령 (2단계 진입 시 자동 전송)")]
+    public string hammerCommand = "MODE HAMMER";
     [Tooltip("사격 모드로 바꿀 때 모듈 형태 변경 명령")]
     public string gunCommand = "";
     [Tooltip("두더지를 맞혔을 때 보낼 명령 (비워 두면 보내지 않음)")]
@@ -115,6 +137,9 @@ public class WhackGameManager : MonoBehaviour
     Vector3 countdownBaseScale = Vector3.one;
 
     int hits, misses, wrongs;
+    int stage, stageCatches;                 // 현재 단계(0 = 게임 밖), 이번 단계에서 잡은 수
+    readonly int[] stageScore = new int[3];  // [1], [2] 단계별 점수
+    public int Stage => stage;
     float timeLeft, spawnTimer;
     bool prevA, prevB, prevTrigger, prevLeftTrigger;
     Transform boardLegend;
@@ -172,7 +197,11 @@ public class WhackGameManager : MonoBehaviour
                 SpawnOne();
                 spawnTimer = Random.Range(spawnIntervalMin, spawnIntervalMax);
             }
-            if (timeLeft <= 0f) EndRound();
+            if (timeLeft <= 0f)
+            {
+                if (useStages && stage == 1) StageFailed();   // 1단계 시간 초과 = 게임 오버
+                else EndRound();                              // 2단계 종료(또는 단계 없는 한 판) = 최종 결과
+            }
         }
         UpdateText();
     }
@@ -187,14 +216,16 @@ public class WhackGameManager : MonoBehaviour
         bool leftTrig = RightHandFollower.GetLeftButton(UnityEngine.XR.CommonUsages.triggerButton);
 
         if (a && !prevA) ToggleRound();
-        // 도구 전환: 왼손 검지 트리거 또는 B (게임 중에도 가능)
-        if ((leftTrig && !prevLeftTrigger) || (b && !prevB) || KeyDown(KeyId.Tab)) SwitchTool();
+        // 도구 전환: 왼손 검지 트리거 또는 B
+        //   단계 모드에서는 게임 중 도구가 단계에 따라 자동으로 바뀌므로, 대기 중에만 직접 바꿀 수 있음
+        bool manualSwitchOk = !useStages || (!Playing && !CountingDown);
+        if (manualSwitchOk && ((leftTrig && !prevLeftTrigger) || (b && !prevB) || KeyDown(KeyId.Tab))) SwitchTool();
         if (trig && !prevTrigger && Mode == ToolMode.Gun && gun != null) gun.Fire();
         prevA = a; prevB = b; prevTrigger = trig; prevLeftTrigger = leftTrig;
 
         if (KeyDown(KeyId.Space)) ToggleRound();
-        if (KeyDown(KeyId.One)) ChangeTool(ToolMode.Wood);
-        if (KeyDown(KeyId.Two)) ChangeTool(ToolMode.Hammer);
+        if (manualSwitchOk && KeyDown(KeyId.One)) ChangeTool(ToolMode.Wood);
+        if (manualSwitchOk && KeyDown(KeyId.Two)) ChangeTool(ToolMode.Hammer);
         if (allowGunMode && !Playing && !CountingDown && KeyDown(KeyId.Three)) SetMode(ToolMode.Gun);
         if (KeyDown(KeyId.H)) ModuleStrike();
         if (KeyDown(KeyId.F) && Mode == ToolMode.Gun && gun != null) gun.Fire();
@@ -203,14 +234,25 @@ public class WhackGameManager : MonoBehaviour
     // 드럼 스틱 ↔ 쇠 망치 (사격 모드였다면 드럼 스틱으로)
     void SwitchTool() => ChangeTool(Mode == ToolMode.Wood ? ToolMode.Hammer : ToolMode.Wood);
 
-    // 게임 중에도 두더지를 숨기지 않고 도구만 바꿈
+    // 게임 중에도 두더지를 숨기지 않고 도구만 바꿈. 변신 이펙트가 있으면 오오라 속에서 교체
     void ChangeTool(ToolMode mode)
     {
         if (mode == Mode) return;
         if (Mode == ToolMode.Gun && (Playing || CountingDown)) return;
-        SetMode(mode, hideMoles: !(Playing || CountingDown));
-        RightHandFollower.Vibrate(0.35f, 0.04f);
+        if (transformFx != null && transformFx.Playing) return;
+        bool hide = !(Playing || CountingDown);
+        if (transformFx != null && transformFx.isActiveAndEnabled)
+        {
+            transformFx.Play(CurrentToolObject(), () => SetMode(mode, hide), CurrentToolObject);
+        }
+        else
+        {
+            SetMode(mode, hide);
+            RightHandFollower.Vibrate(0.35f, 0.04f);
+        }
     }
+
+    GameObject CurrentToolObject() => Mode == ToolMode.Wood ? woodTool : Mode == ToolMode.Hammer ? hammerTool : gunTool;
 
     enum KeyId { Space, One, Two, Three, H, F, Tab }
 
@@ -276,7 +318,8 @@ public class WhackGameManager : MonoBehaviour
             lastResult = "";
         }
 
-        if (useModule && arduino != null)
+        // 하우징 형태 변경 명령 (모듈 버전, 또는 진동 전송용으로 아두이노가 켜져 있을 때)
+        if (arduino != null && (useModule || arduino.enabled))
         {
             string cmd = mode == ToolMode.Wood ? woodCommand : mode == ToolMode.Hammer ? hammerCommand : gunCommand;
             arduino.Send(cmd);
@@ -341,12 +384,16 @@ public class WhackGameManager : MonoBehaviour
         countdownRoutine = StartCoroutine(CountdownRoutine());
     }
 
+    // 카운트다운·단계 전환 중 A를 누르면 취소 (전환 중이면 그때까지 점수로 결과 표시)
     void CancelCountdown()
     {
         if (countdownRoutine != null) StopCoroutine(countdownRoutine);
         countdownRoutine = null;
         CountingDown = false;
         ShowCountdown(null, Color.clear, 1f);
+        if (useStages && stageScore[1] > 0) lastResult = StageResultText();
+        stage = 0;
+        if (playHudText != null) playHudText.gameObject.SetActive(false);
         FadeBoard(true);
     }
 
@@ -355,23 +402,85 @@ public class WhackGameManager : MonoBehaviour
         CountingDown = true;
         HideAll();
         lastResult = "";
+        stage = 0; stageScore[1] = stageScore[2] = 0;
         FadeBoard(false);
+        // 단계 모드: 1단계는 드럼 스틱 (망치를 들고 있었다면 변신)
+        if (useStages && Mode != ToolMode.Wood) ChangeTool(ToolMode.Wood);
         yield return new WaitForSeconds(boardFadeTime);
+        while (transformFx != null && transformFx.Playing) yield return null;
 
+        yield return Count321(1);
+        countdownRoutine = null;
+    }
+
+    // 3 → 2 → 1 → GO! (GO와 동시에 다음 단계 시작)
+    IEnumerator Count321(int nextStage)
+    {
         string[] steps = { "3", "2", "1" };
         for (int i = 0; i < steps.Length; i++)
         {
             RightHandFollower.Vibrate(0.25f, 0.05f);
             yield return PopText(steps[i], ColorAt(i), countdownStep, 1.7f, 1f);
         }
-
-        // START! 와 동시에 게임 시작
         CountingDown = false;
-        StartRound();
+        if (useStages) StartStage(nextStage);
+        else StartRound();
         RightHandFollower.Vibrate(0.7f, 0.15f);
-        yield return PopText("START!", ColorAt(3), 0.9f, 0.6f, 1.25f);
+        yield return PopText("GO!", ColorAt(3), 0.9f, 0.6f, 1.25f);
+    }
+
+    // ---------- 단계 ----------
+    void StartStage(int s)
+    {
+        StartRound();
+        stage = s;
+        stageCatches = 0;
+        stageScore[s] = 0;
+        timeLeft = s == 1 ? stage1Seconds : stage2Seconds;
+    }
+
+    // 1단계 통과 → 점수 표시 → 2단계 안내 + 변신(하우징 변형 시간) → 3·2·1·GO! → 2단계 (입력 없이 자동)
+    IEnumerator Stage2Transition()
+    {
+        Playing = false;
+        CountingDown = true;
+        HideAll();
+        if (playHudText != null) playHudText.gameObject.SetActive(false);
+        RightHandFollower.Vibrate(0.8f, 0.2f);
+        yield return PopText("STAGE 1\nCLEAR!", ColorAt(3), clearShowSeconds * 0.5f, 0.8f, 0.42f);
+        yield return PopText($"SCORE  {stageScore[1]}", Color.white, clearShowSeconds * 0.5f, 0.7f, 0.42f);
+
+        // 2단계 안내와 함께 망치로 변신 (아두이노 hammerCommand 전송 → 하우징 변형 시작)
+        ChangeTool(ToolMode.Hammer);
+        yield return PopText("STAGE 2\nHAMMER TIME!", new Color(0.55f, 1f, 0.4f), stage2IntroSeconds, 0.7f, 0.38f);
+        while (transformFx != null && transformFx.Playing) yield return null;
+
+        yield return Count321(2);
         countdownRoutine = null;
     }
+
+    // 1단계 시간 안에 20마리를 못 잡음 → 게임 오버
+    void StageFailed()
+    {
+        Playing = false;
+        HideAll();
+        lastResult = $"STAGE 1 FAILED    {stageCatches}/{stage1Goal}    SCORE {stageScore[1]}";
+        Debug.Log($"[두더지] 1단계 실패 - {stageCatches}/{stage1Goal}, {stageScore[1]}점");
+        stage = 0;
+        if (playHudText != null) playHudText.gameObject.SetActive(false);
+        if (countdownRoutine != null) StopCoroutine(countdownRoutine);
+        countdownRoutine = StartCoroutine(GameOverRoutine("TIME UP!"));
+    }
+
+    IEnumerator GameOverRoutine(string title)
+    {
+        yield return PopText(title, ColorAt(0), 1.4f, 0.8f, 0.45f);
+        FadeBoard(true);
+        countdownRoutine = null;
+    }
+
+    string StageResultText() =>
+        $"STAGE1 {stageScore[1]}  +  STAGE2 {stageScore[2]}  =  TOTAL {stageScore[1] + stageScore[2]}";
 
     Color ColorAt(int i) => countdownColors != null && countdownColors.Length > 0
         ? countdownColors[Mathf.Clamp(i, 0, countdownColors.Length - 1)] : Color.white;
@@ -475,6 +584,22 @@ public class WhackGameManager : MonoBehaviour
         HideAll();
         int total = hits + misses;
         float acc = total > 0 ? 100f * hits / total : 0f;
+        if (useStages && stage > 0)
+        {
+            lastResult = StageResultText();
+            Debug.Log($"[두더지] 종료 - {lastResult}");
+            bool finished = stage == 2 && timeLeft <= 0f;
+            stage = 0;
+            if (playHudText != null) playHudText.gameObject.SetActive(false);
+            if (finished)
+            {
+                // 2단계까지 끝까지 마침: "FINISH!" 후 결과판
+                if (countdownRoutine != null) StopCoroutine(countdownRoutine);
+                countdownRoutine = StartCoroutine(GameOverRoutine("FINISH!"));
+            }
+            else FadeBoard(true); // A로 중간에 멈춤
+            return;
+        }
         lastResult = $"HIT {hits}    MISS {misses}    WRONG TOOL {wrongs}    ({acc:0}%)";
         Debug.Log($"[두더지] 종료 - 맞힘 {hits}, 빗맞음 {misses} (틀린 도구 {wrongs})");
         if (playHudText != null) playHudText.gameObject.SetActive(false);
@@ -495,8 +620,10 @@ public class WhackGameManager : MonoBehaviour
             Mole m = set[Random.Range(0, set.Length)];
             if (m != null && m.IsDown)
             {
-                // 탁자 두더지는 종류를 무작위로 (초록 우락부락 = badMoleRatio 확률)
-                MoleKind kind = Mode != ToolMode.Gun && Random.value < badMoleRatio ? MoleKind.Bad : MoleKind.Normal;
+                // 단계 모드: 1단계 = 귀여운 두더지만, 2단계 = 초록 두더지만
+                // 단계 없는 한 판: 무작위 (초록 우락부락 = badMoleRatio 확률)
+                MoleKind kind = useStages ? (stage == 2 ? MoleKind.Bad : MoleKind.Normal)
+                    : (Mode != ToolMode.Gun && Random.value < badMoleRatio ? MoleKind.Bad : MoleKind.Normal);
                 m.PopUp(moleStayTime, kind);
                 return;
             }
@@ -558,6 +685,17 @@ public class WhackGameManager : MonoBehaviour
             // 초록 두더지는 더 강하게 (시간은 같음) → 아두이노로도 VIB 255 80 / VIB 128 80
             RightHandFollower.Vibrate(target.Kind == MoleKind.Bad ? badHitVibration : normalHitVibration, hitVibrationSeconds);
             if (useModule && arduino != null) arduino.Send(hitFeedbackCommand); // 모듈 버전 전용 추가 명령 (비워 두면 안 보냄)
+            if (useStages && stage > 0)
+            {
+                stageScore[stage] += pointsPerMole;
+                stageCatches++;
+                // 1단계: 20마리를 잡는 순간 통과 → 자동으로 2단계 전환
+                if (stage == 1 && stageCatches >= stage1Goal)
+                {
+                    if (countdownRoutine != null) StopCoroutine(countdownRoutine);
+                    countdownRoutine = StartCoroutine(Stage2Transition());
+                }
+            }
         }
         else
         {
@@ -573,7 +711,10 @@ public class WhackGameManager : MonoBehaviour
         string ver = useModule ? "MODULE" : "CONTROLLER";
         if (Playing)
         {
-            string hud = $"{modeName}    TIME {Mathf.CeilToInt(Mathf.Max(timeLeft, 0f))}    HIT {hits}    MISS {misses}";
+            int tl = Mathf.CeilToInt(Mathf.Max(timeLeft, 0f));
+            string hud = useStages && stage > 0
+                ? $"STAGE {stage}    TIME {tl}    SCORE {stageScore[stage]}" + (stage == 1 ? $"    {stageCatches}/{stage1Goal}" : $"    TOTAL {stageScore[1] + stageScore[2]}")
+                : $"{modeName}    TIME {tl}    HIT {hits}    MISS {misses}";
             if (playHudText != null)
             {
                 playHudText.gameObject.SetActive(true);
@@ -595,11 +736,17 @@ public class WhackGameManager : MonoBehaviour
                 resultBox.SetActive(lastResult.Length > 0);
                 resultText.text = lastResult;
             }
-            statusText.text = $"NOW HOLDING : {modeName}{link}\n" +
-                              (!box && lastResult.Length > 0 ? "RESULT  " + lastResult + "\n" : "\n") +
-                              "\nRIGHT  [A]  :  START / STOP\n" +
-                              "LEFT  [TRIGGER]  :  STICK <-> HAMMER\n" +
-                              "LEFT  [Y]  :  SHOOTING RANGE";
+            if (useStages)
+                statusText.text = $"STAGE 1 :  CUTE MOLE  x{stage1Goal}  IN {stage1Seconds:0}s   ({pointsPerMole} PTS){link}\n" +
+                                  $"STAGE 2 :  GREEN BRUTE  -  HAMMER  ({stage2Seconds:0}s)\n" +
+                                  (!box && lastResult.Length > 0 ? "RESULT  " + lastResult + "\n" : "\n") +
+                                  "RIGHT  [A]  :  START / STOP";
+            else
+                statusText.text = $"NOW HOLDING : {modeName}{link}\n" +
+                                  (!box && lastResult.Length > 0 ? "RESULT  " + lastResult + "\n" : "\n") +
+                                  "\nRIGHT  [A]  :  START / STOP\n" +
+                                  "LEFT  [TRIGGER]  :  STICK <-> HAMMER";
+            // (사격은 별도 씬이라 두더지 화면에서는 사격 안내를 표시하지 않음 – 왼손 Y 씬 전환 기능은 그대로)
         }
     }
 }

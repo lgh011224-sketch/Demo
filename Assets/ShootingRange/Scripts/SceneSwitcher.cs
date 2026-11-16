@@ -15,7 +15,7 @@ public class SceneSwitcher : MonoBehaviour
 {
     public string targetScene = "ShootingRange";
     [Tooltip("확인 창에 표시할 이동할 곳 이름 (예: 사격장, 두더지 잡기)")]
-    public string targetLabel = "사격장";
+    public string targetLabel = "SHOOTING GALLERY";
     [Tooltip("한글이 들어 있는 폰트 (Noto Sans KR)")]
     public Font font;
     public float autoCloseSeconds = 8f;
@@ -88,7 +88,7 @@ public class SceneSwitcher : MonoBehaviour
         if (dialog != null)
         {
             var tms = dialog.GetComponentsInChildren<TextMesh>();
-            if (tms.Length > 0) tms[0].text = $"{targetLabel}{(HasFinalConsonant(targetLabel) ? "으로" : "로")} 이동 중...";
+            if (tms.Length > 0) tms[0].text = $"Loading {targetLabel}...";
         }
         SceneManager.LoadScene(targetScene);
     }
@@ -108,9 +108,8 @@ public class SceneSwitcher : MonoBehaviour
         var textShader = Shader.Find("WhackAMole/Text3D");
         Material textMat = textShader != null ? new Material(textShader) { mainTexture = f.material.mainTexture } : f.material;
 
-        string particle = HasFinalConsonant(targetLabel) ? "으로" : "로";
-        Text("Question", $"{targetLabel}{particle} 가시겠습니까?", new Vector3(0f, 0.045f, -0.003f), 0.0042f, Color.white, f, textMat);
-        Text("Answers", "<color=#F2C12E>[Y]</color> 예          <color=#9AA4B2>[X]</color> 아니오", new Vector3(0f, -0.06f, -0.003f), 0.0032f, new Color(0.85f, 0.88f, 0.92f), f, textMat);
+        Text("Question", $"Go to {targetLabel}?", new Vector3(0f, 0.045f, -0.003f), 0.0042f, Color.white, f, textMat);
+        Text("Answers", "<color=#F2C12E>[Y]</color> Yes          <color=#9AA4B2>[X]</color> No", new Vector3(0f, -0.06f, -0.003f), 0.0032f, new Color(0.85f, 0.88f, 0.92f), f, textMat);
         dialog.SetActive(false);
     }
 

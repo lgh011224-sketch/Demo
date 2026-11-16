@@ -11,6 +11,9 @@ public class RangePistol : MonoBehaviour
     public Light flashLight;
     public Renderer flashRenderer;
     public AudioSource audioSource;
+    [Tooltip("실제 권총 사격음 녹음 (여러 개면 쏠 때마다 무작위). 비워 두면 합성음 사용")]
+    public AudioClip[] shotClips;
+    [Range(0f, 1f)] public float shotVolume = 1f;
 
     [Header("반동")]
     public float recoilBack = 0.025f;
@@ -36,6 +39,10 @@ public class RangePistol : MonoBehaviour
         if (flashLight) flashLight.enabled = false;
         if (flashRenderer) flashRenderer.enabled = false;
         shot = SynthShot();
+        // 녹음 앞부분의 조용한 구간(약 0.08초)을 잘라 방아쇠와 동시에 '탕' 소리가 나게
+        if (shotClips != null)
+            for (int i = 0; i < shotClips.Length; i++)
+                if (shotClips[i] != null) shotClips[i] = TrimLeadingSilence(shotClips[i], 0.05f, 0.003f);
         click = SynthClick();
         if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
         audioSource.playOnAwake = false;
@@ -46,8 +53,14 @@ public class RangePistol : MonoBehaviour
     {
         fireTime = Time.time;
         if (flashRenderer) flashRenderer.transform.localRotation = Quaternion.Euler(0f, 0f, Random.Range(0f, 360f));
-        audioSource.pitch = Random.Range(0.95f, 1.05f);
-        audioSource.PlayOneShot(shot, 1f);
+        AudioClip clip = shot;
+        if (shotClips != null && shotClips.Length > 0)
+        {
+            var c = shotClips[Random.Range(0, shotClips.Length)];
+            if (c != null) clip = c;
+        }
+        audioSource.pitch = Random.Range(0.96f, 1.04f);
+        audioSource.PlayOneShot(clip, shotVolume);
     }
 
     public void PlayDryFire()
@@ -77,6 +90,24 @@ public class RangePistol : MonoBehaviour
             visual.localPosition = basePos;
             visual.localRotation = baseRot;
         }
+    }
+
+    static AudioClip TrimLeadingSilence(AudioClip src, float threshold, float preRoll)
+    {
+        if (src.loadType != AudioClipLoadType.DecompressOnLoad) return src;
+        int ch = src.channels;
+        var data = new float[src.samples * ch];
+        if (!src.GetData(data, 0)) return src;
+        int first = 0;
+        while (first < data.Length && Mathf.Abs(data[first]) < threshold) first++;
+        int startFrame = Mathf.Max(0, first / ch - Mathf.RoundToInt(preRoll * src.frequency));
+        if (startFrame <= 0 || startFrame >= src.samples - 1) return src;
+        int frames = src.samples - startFrame;
+        var cut = new float[frames * ch];
+        System.Array.Copy(data, startFrame * ch, cut, 0, cut.Length);
+        var clip = AudioClip.Create(src.name + "_trim", frames, ch, src.frequency, false);
+        clip.SetData(cut, 0);
+        return clip;
     }
 
     static AudioClip SynthShot()

@@ -400,7 +400,7 @@ public static class RangeBuilder
         if (parent != null) s.transform.SetParent(parent, false);
         s.targetScene = target;
         // 왼손 Y → "OO(으)로 가시겠습니까?" 확인 창 (한글 폰트 Noto Sans KR)
-        s.targetLabel = target == "ShootingRange" ? "사격장" : "두더지 잡기";
+        s.targetLabel = target == "ShootingRange" ? "SHOOTING GALLERY" : "WHACK-A-MOLE";
         s.font = AssetDatabase.LoadAssetAtPath<Font>("Assets/WhackAMole/Fonts/NotoSansKR.ttf");
         // 예전 버전의 그립 진행 표시 글자는 제거
         foreach (var tm in Object.FindObjectsByType<TextMesh>(FindObjectsInactive.Include, FindObjectsSortMode.None))
@@ -450,7 +450,7 @@ public static class RangeBuilder
         }
         mgr.hudLast = Make("LastScore", new Vector3(0f, 0.04f, 0f), 0.0075f, Color.white);
         mgr.hudAmmo = Make("Ammo", Vector3.zero, 0.006f, Color.white);
-        mgr.hudAmmo.text = "남은 탄  10 / 10";
+        mgr.hudAmmo.text = "AMMO  10 / 10";
         mgr.hudLast.text = ""; mgr.hudLast.gameObject.SetActive(false);
         // 글자 뒤 반투명 어두운 판 (글자에 맞춰 크기 자동 조절)
         var panel = GameObject.CreatePrimitive(PrimitiveType.Quad);

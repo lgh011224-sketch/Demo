@@ -375,11 +375,15 @@ public class WhackGameManager : MonoBehaviour
             countdownBaseScale = countdownText.transform.localScale;
             countdownText.gameObject.SetActive(false);
         }
-        if (playHudText != null) playHudText.gameObject.SetActive(false);
+        if (playHudText != null) { playHudBaseScale = playHudText.transform.localScale; playHudText.gameObject.SetActive(false); }
     }
+
+    Vector3 playHudBaseScale = Vector3.one;
 
     void BeginCountdown()
     {
+        // 센서 버전: 시작할 때 하우징을 가운데 구멍 쪽으로 들고 있으면 그 자세가 정면이 됨
+        if (ImuInput.Instance != null) ImuInput.Instance.Recenter();
         if (countdownRoutine != null) StopCoroutine(countdownRoutine);
         countdownRoutine = StartCoroutine(CountdownRoutine());
     }
@@ -426,7 +430,7 @@ public class WhackGameManager : MonoBehaviour
         if (useStages) StartStage(nextStage);
         else StartRound();
         RightHandFollower.Vibrate(0.7f, 0.15f);
-        yield return PopText("GO!", ColorAt(3), 0.9f, 0.6f, 1.25f);
+        yield return PopText("GO!", ColorAt(3), countdownStep, 1.7f, 1f);   // 3·2·1과 같은 모양·속도로 사라짐
     }
 
     // ---------- 단계 ----------
@@ -520,20 +524,36 @@ public class WhackGameManager : MonoBehaviour
             child.text = text;
             Color c = child.color; c.a = alpha * 0.85f; child.color = c;
         }
+        FitToScreen(countdownText, 0.92f);
     }
 
-    void FadeBoard(bool show)
+    [Tooltip("점수판 화면 안쪽 크기 (m) – 카운트다운·점수 글자가 이 안에 들어가게 줄임")]
+    public Vector2 screenSize = new Vector2(1.06f, 0.52f);
+
+    // 글자가 점수판 화면(검은 네모) 밖으로 나가지 않게 크기를 줄임
+    void FitToScreen(TextMesh t, float fill)
     {
-        if (statusBoard == null) return;
-        if (boardRoutine != null) StopCoroutine(boardRoutine);
-        boardRoutine = StartCoroutine(FadeBoardRoutine(show));
+        if (t == null) return;
+        var r = t.GetComponent<MeshRenderer>();
+        if (r == null) return;
+        Bounds b = r.localBounds;
+        Vector3 ls = t.transform.lossyScale;
+        float w = b.size.x * ls.x, h = b.size.y * ls.y;
+        if (w <= 0f || h <= 0f) return;
+        float k = Mathf.Min(1f, screenSize.x * fill / w, screenSize.y * fill / h);
+        if (k < 1f) t.transform.localScale *= k;
     }
+
+    // 위 전광판은 이제 "WHACK-A-MOLE" 타이틀 그림으로 고정 → 사라지거나 나타나지 않음 (정보는 상판 LED 화면)
+    void FadeBoard(bool show) { }
 
     IEnumerator FadeBoardRoutine(bool show)
     {
         statusBoard.gameObject.SetActive(true);
-        // 페이드하는 동안만 반투명 머티리얼 사용
-        if (boardBackdrop != null && boardFadeMat != null) boardBackdrop.sharedMaterial = boardFadeMat;
+        // 점수판(검은 화면)은 계속 켜 두고, 그 안의 설명 글·두더지 그림만 사라지고 나타남
+        //  → 3·2·1과 점수가 같은 화면 안에 표시됨
+        if (statusText != null) statusText.gameObject.SetActive(true);
+        if (boardLegend != null) boardLegend.gameObject.SetActive(true);
         float from = show ? 0f : 1f, to = show ? 1f : 0f;
         float t = 0f;
         while (t < boardFadeTime)
@@ -543,19 +563,16 @@ public class WhackGameManager : MonoBehaviour
             yield return null;
         }
         SetBoardAlpha(to);
-        if (boardBackdrop != null && boardOpaqueMat != null) boardBackdrop.sharedMaterial = boardOpaqueMat;
-        if (!show) statusBoard.gameObject.SetActive(false);
+        if (!show)
+        {
+            if (statusText != null) statusText.gameObject.SetActive(false);
+            if (boardLegend != null) boardLegend.gameObject.SetActive(false);
+        }
         boardRoutine = null;
     }
 
     void SetBoardAlpha(float a)
     {
-        if (boardFadeMat != null)
-        {
-            Color c = boardBaseColor; c.a *= a;
-            if (boardFadeMat.HasProperty("_BaseColor")) boardFadeMat.SetColor("_BaseColor", c);
-            else boardFadeMat.color = c;
-        }
         if (statusText != null) { Color c = statusBaseColor; c.a *= a; statusText.color = c; }
         if (boardLegend != null)
         {
@@ -659,6 +676,25 @@ public class WhackGameManager : MonoBehaviour
         OnStrike(best);
     }
 
+    // 센서 버전: 내려친 순간 도구가 있던 좌우 위치(세계 X)에서 가장 가까운 구멍으로 판정
+    //   구멍 간격의 절반보다 멀면(줄 바깥) 빗맞음
+    public void StrikeAtX(float worldX)
+    {
+        Mole best = null;
+        float bestDist = float.MaxValue, minX = float.MaxValue, maxX = float.MinValue;
+        int count = 0;
+        foreach (Mole m in tableMoles)
+        {
+            if (m == null) continue;
+            float x = m.transform.position.x;
+            minX = Mathf.Min(minX, x); maxX = Mathf.Max(maxX, x); count++;
+            float d = Mathf.Abs(x - worldX);
+            if (d < bestDist) { bestDist = d; best = m; }
+        }
+        float halfGap = count > 1 ? (maxX - minX) / (count - 1) * 0.5f : 0.08f;
+        OnStrike(bestDist <= halfGap + 0.01f ? best : null);
+    }
+
     // 이 도구로 이 두더지를 잡을 수 있는지: 귀여운 두더지 = 드럼 스틱, 초록 두더지 = 쇠 망치 (사격은 구분 없음)
     bool ToolMatches(Mole target) =>
         Mode == ToolMode.Gun ||
@@ -704,49 +740,68 @@ public class WhackGameManager : MonoBehaviour
     }
 
     // ---------- 화면 ----------
+    // 위 전광판 = "WHACK-A-MOLE" 타이틀 그림 (고정)
+    // 구멍 뒤 초록 상판의 LED 화면 = 정보: 큰 점수(playHudText) + 짧은 안내 한 줄(statusText) + 3·2·1(countdownText)
     void UpdateText()
     {
         if (statusText == null) return;
-        string modeName = Mode == ToolMode.Wood ? "DRUM STICK" : Mode == ToolMode.Hammer ? "HAMMER" : "SHOOTING";
-        string ver = useModule ? "MODULE" : "CONTROLLER";
-        if (Playing)
+        if (resultBox != null) resultBox.SetActive(false);   // 결과는 큰 점수로 대신 보여 줌
+        string big, small;
+        Color bigColor = new Color(1f, 0.85f, 0.15f), smallColor = Color.white;
+        bool bigTextShowing = countdownText != null && countdownText.gameObject.activeSelf;
+        if (Playing && bigTextShowing)
+        {
+            big = ""; small = "";   // GO!가 완전히 사라진 뒤에 점수 표시
+        }
+        else if (Playing)
         {
             int tl = Mathf.CeilToInt(Mathf.Max(timeLeft, 0f));
-            string hud = useStages && stage > 0
-                ? $"STAGE {stage}    TIME {tl}    SCORE {stageScore[stage]}" + (stage == 1 ? $"    {stageCatches}/{stage1Goal}" : $"    TOTAL {stageScore[1] + stageScore[2]}")
-                : $"{modeName}    TIME {tl}    HIT {hits}    MISS {misses}";
-            if (playHudText != null)
-            {
-                playHudText.gameObject.SetActive(true);
-                playHudText.text = hud;
-            }
-            statusText.text = $"{modeName}\n{hud}";
+            int total = useStages ? stageScore[1] + stageScore[2] : hits * pointsPerMole;
+            big = $"SCORE {total}";
+            small = useStages && stage > 0
+                ? $"STAGE {stage}   TIME {tl}   " + (stage == 1 ? $"MOLES {stageCatches}/{stage1Goal}" : "GREEN MOLES!")
+                : $"TIME {tl}   HIT {hits}   MISS {misses}";
+            if (tl <= 5) smallColor = new Color(1f, 0.5f, 0.4f);
         }
         else if (CountingDown)
         {
-            // 카운트 중에는 점수판 글자를 바꾸지 않음 (페이드 아웃 중)
+            big = ""; small = "";   // 3·2·1과 단계 안내는 countdownText가 같은 화면에 크게
+        }
+        else if (lastResult.Length > 0)
+        {
+            int total = useStages ? stageScore[1] + stageScore[2] : hits * pointsPerMole;
+            big = $"SCORE {total}";
+            small = "PRESS [A] TO PLAY AGAIN";
         }
         else
         {
-            string link = useModule ? (arduino != null && arduino.IsOpen ? "  [Arduino OK]" : "  [Arduino X]") : "";
-            // 이번 판 결과는 노란 테두리 상자에 따로 (상자가 없으면 예전처럼 본문에)
-            bool box = resultBox != null && resultText != null;
-            if (box)
-            {
-                resultBox.SetActive(lastResult.Length > 0);
-                resultText.text = lastResult;
-            }
-            if (useStages)
-                statusText.text = $"STAGE 1 :  CUTE MOLE  x{stage1Goal}  IN {stage1Seconds:0}s   ({pointsPerMole} PTS){link}\n" +
-                                  $"STAGE 2 :  GREEN BRUTE  -  HAMMER  ({stage2Seconds:0}s)\n" +
-                                  (!box && lastResult.Length > 0 ? "RESULT  " + lastResult + "\n" : "\n") +
-                                  "RIGHT  [A]  :  START / STOP";
-            else
-                statusText.text = $"NOW HOLDING : {modeName}{link}\n" +
-                                  (!box && lastResult.Length > 0 ? "RESULT  " + lastResult + "\n" : "\n") +
-                                  "\nRIGHT  [A]  :  START / STOP\n" +
-                                  "LEFT  [TRIGGER]  :  STICK <-> HAMMER";
-            // (사격은 별도 씬이라 두더지 화면에서는 사격 안내를 표시하지 않음 – 왼손 Y 씬 전환 기능은 그대로)
+            big = "READY?";
+            small = "PRESS [A] TO START";
+        }
+        SetLine(playHudText, big, bigColor, 0.95f, 0.62f);
+        SetLine(statusText, small, smallColor, 0.95f, 0.3f);
+    }
+
+    // 상판 화면 안에 한 줄 표시 (폭·높이 비율에 맞게 자동 축소)
+    void SetLine(TextMesh t, string text, Color color, float fillW, float fillH)
+    {
+        if (t == null) return;
+        bool on = !string.IsNullOrEmpty(text);
+        if (t.gameObject.activeSelf != on) t.gameObject.SetActive(on);
+        if (!on || (t.text == text && t.color == color)) return;
+        t.text = text;
+        t.color = color;
+        if (!lineBaseScale.ContainsKey(t)) lineBaseScale[t] = t.transform.localScale;
+        t.transform.localScale = lineBaseScale[t];
+        var r = t.GetComponent<MeshRenderer>();
+        Bounds b = r.localBounds; Vector3 ls = t.transform.lossyScale;
+        float w = b.size.x * ls.x, h = b.size.y * ls.y;
+        if (w > 0f && h > 0f)
+        {
+            float k = Mathf.Min(1f, screenSize.x * fillW / w, screenSize.y * fillH / h);
+            if (k < 1f) t.transform.localScale *= k;
         }
     }
+
+    readonly System.Collections.Generic.Dictionary<TextMesh, Vector3> lineBaseScale = new System.Collections.Generic.Dictionary<TextMesh, Vector3>();
 }

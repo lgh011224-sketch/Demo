@@ -14,12 +14,14 @@ public class ArduinoSerial : MonoBehaviour
 {
     [Tooltip("장치 관리자 > 포트(COM & LPT)에 보이는 아두이노 포트 이름")]
     public string portName = "COM3";
-    [Tooltip("아두이노 코드의 Serial.begin(...) 값과 같아야 합니다")]
-    public int baudRate = 9600;
+    [Tooltip("아두이노 코드의 Serial.begin(...) 값과 같아야 합니다 (센서 스케치 ImuHaptic = 115200)")]
+    public int baudRate = 115200;
     [Tooltip("모듈 버전이 아니면 게임 매니저가 자동으로 끕니다")]
     public bool connectOnStart = true;
     [Tooltip("받은 메시지를 Console 창에 표시")]
     public bool logIncoming = true;
+    [Tooltip("이 글자로 시작하는 메시지는 표시하지 않음 (센서 값 \"I ...\"는 1초에 200번 오므로)")]
+    public string quietPrefix = "I ";
 
     [Tooltip("보낸 명령을 Console 창에 표시 (연결 안 됐을 때도 '보냈을 명령'으로 표시)")]
     public bool logOutgoing = true;
@@ -103,7 +105,7 @@ public class ArduinoSerial : MonoBehaviour
     {
         while (inbox.TryDequeue(out string line))
         {
-            if (logIncoming) Debug.Log("[Arduino →] " + line);
+            if (logIncoming && (string.IsNullOrEmpty(quietPrefix) || !line.StartsWith(quietPrefix))) Debug.Log("[Arduino →] " + line);
             OnLine?.Invoke(line);
         }
     }

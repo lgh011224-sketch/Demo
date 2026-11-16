@@ -67,6 +67,20 @@ public class ShootingRangeManager : MonoBehaviour
     bool prevLeft, prevRight;
     readonly List<GameObject> markers = new List<GameObject>();
 
+    void OnEnable()
+    {
+        // 센서 버전: 하우징 버튼(아두이노 "FIRE")으로도 발사
+        imu = ImuInput.Instance != null ? ImuInput.Instance : FindAnyObjectByType<ImuInput>();
+        if (imu != null) imu.Fire += Fire;
+    }
+
+    void OnDisable()
+    {
+        if (imu != null) imu.Fire -= Fire;
+    }
+
+    ImuInput imu;
+
     void Start()
     {
         roundsLeft = roundsPerSession;
@@ -205,13 +219,13 @@ public class ShootingRangeManager : MonoBehaviour
     {
         if (hudAmmo != null)
         {
-            hudAmmo.text = $"남은 탄  {roundsLeft} / {roundsPerSession}";
+            hudAmmo.text = $"AMMO  {roundsLeft} / {roundsPerSession}";
             hudAmmo.color = roundsLeft == 0 ? new Color(1f, 0.45f, 0.4f) : roundsLeft <= 3 ? new Color(1f, 0.8f, 0.3f) : Color.white;
         }
         if (hudLast != null)
         {
             hudLast.gameObject.SetActive(lastScore >= 0);
-            hudLast.text = lastScore == 0 ? "빗나감" : $"방금  {lastScore}점";
+            hudLast.text = lastScore == 0 ? "MISS" : $"LAST  {lastScore} PTS";
             hudLast.color = lastScore >= 9 ? new Color(1f, 0.85f, 0.2f) : lastScore == 0 ? new Color(1f, 0.45f, 0.4f) : Color.white;
             float k = Mathf.Clamp01((Time.time - hudPopTime) / 0.25f);
             hudLast.transform.localScale = hudLastScale * (1f + Mathf.Sin(k * Mathf.PI) * 0.35f);

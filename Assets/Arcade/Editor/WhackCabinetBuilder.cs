@@ -10,7 +10,10 @@ using UnityEngine.Rendering;
 public static class WhackCabinetBuilder
 {
     const float DeckY = 0.75f;          // 구멍 높이 (두더지가 올라오는 면)
-    const float FrontZ = 0.36f, BackZ = 1.14f, HalfW = 0.68f;   // 폭 = 위 전광판 블럭(1.36 m)과 같게
+    const float FrontZ = 0.36f, HalfW = 0.68f;   // 폭 = 위 전광판 블럭(1.36 m)과 같게
+    const float ScreenD = 0.4f;          // 상판 LED 화면 앞뒤 길이
+    // 기계 길이는 구멍 배치에 맞춰 자동: 맨 뒤 구멍 뒤에 LED 화면, 그 뒤에 점수판 패널
+    static float BackZ = 1.14f, ScreenCz = 0.885f;
 
     [MenuItem("Tools/Arcade/Rebuild Whack-A-Mole Cabinet")]
     static void Menu() => Debug.Log("[Arcade] " + Build());
@@ -28,6 +31,15 @@ public static class WhackCabinetBuilder
         if (table != null && table.GetComponent<Renderer>()) table.GetComponent<Renderer>().enabled = false;   // 판정용으로만 남김
         foreach (Transform c in root)
             if (c.name.StartsWith("Hole_") && c.GetComponent<Renderer>()) c.GetComponent<Renderer>().enabled = false;   // 흙구멍 대신 고무 링
+
+        // 구멍 줄 맨 뒤(z) → LED 화면 → 점수판 패널 순으로 뒤로 늘림 (3×3 배치면 기계가 더 길어짐)
+        float maxZ = float.MinValue;
+        foreach (Mole m in gm.tableMoles) if (m != null) maxZ = Mathf.Max(maxZ, m.transform.position.z);
+        if (maxZ == float.MinValue) maxZ = 0.55f;
+        ScreenCz = maxZ + 0.13f + ScreenD * 0.5f;
+        float boardZNew = ScreenCz + ScreenD * 0.5f + 0.025f;
+        if (gm.statusBoard != null) { var bp = gm.statusBoard.position; gm.statusBoard.position = new Vector3(bp.x, bp.y, boardZNew); EditorUtility.SetDirty(gm.statusBoard); }
+        BackZ = boardZNew + 0.04f;
 
         var cab = ArcadeBuilder.Group(root, "WhackCabinet", Vector3.zero);
         var body = ArcadeBuilder.Mat("WhackBody", new Color(0.72f, 0.05f, 0.1f), 0.85f, 0f);
@@ -119,7 +131,7 @@ public static class WhackCabinetBuilder
         // 간판 조명 (상판을 밝힘)
         var lg = new GameObject("DeckLight");
         lg.transform.SetParent(cab, false);
-        lg.transform.position = new Vector3(0f, 2.05f, 0.75f);
+        lg.transform.position = new Vector3(0f, 2.05f, (FrontZ + ScreenCz) * 0.5f + 0.1f);
         lg.transform.rotation = Quaternion.Euler(80f, 180f, 0f);
         var l = lg.AddComponent<Light>();
         l.type = LightType.Spot; l.spotAngle = 85f; l.range = 3f; l.intensity = 2.5f; l.color = new Color(0.92f, 0.85f, 1f); l.shadows = LightShadows.Soft;
@@ -160,7 +172,7 @@ public static class WhackCabinetBuilder
         }
 
         // 상판 LED 화면
-        float y = DeckY + 0.003f, cz = 0.885f, w = 1.18f, d = 0.4f;
+        float y = DeckY + 0.003f, cz = ScreenCz, w = 1.18f, d = ScreenD;
         ArcadeBuilder.RBox(cab, "DeckScreen", new Vector3(0f, DeckY + 0.001f, cz), new Vector3(w, 0.006f, d), ArcadeBuilder.Mat("DeckScreenLCD", new Color(0.01f, 0.012f, 0.02f), 0.85f), false, 0.002f);
         var frame = ArcadeBuilder.Neon("DeckScreenFrame", new Color(0.3f, 1f, 0.55f), 4f);
         ArcadeBuilder.Tube(cab, "DSFrameF", new Vector3(-w * 0.5f, y, cz - d * 0.5f), new Vector3(w * 0.5f, y, cz - d * 0.5f), 0.006f, frame);

@@ -83638,7 +83638,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e71c70113762a4a40a2cc90e1971e42b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ArduinoSerial
-  portName: COM7
+  portName: COM6
   baudRate: 115200
   connectOnStart: 1
   logIncoming: 1
@@ -83652,7 +83652,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 522619715}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d6b3067fa3f25b74e99ce599cf8c6aa7, type: 3}
   m_Name: 
@@ -195608,7 +195608,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1219494787}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1aec737734246f04293dc823768479e3, type: 3}
   m_Name: 

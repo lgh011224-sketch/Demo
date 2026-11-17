@@ -83623,7 +83623,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ArduinoHaptics
   arduino: {fileID: 522619718}
-  sendToArduino: 1
+  sendToArduino: 0
   format: VIB {0} {1}
   minPwm: 1
 --- !u!114 &522619718
@@ -83638,7 +83638,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e71c70113762a4a40a2cc90e1971e42b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ArduinoSerial
-  portName: COM6
+  portName: COM9
   baudRate: 115200
   connectOnStart: 1
   logIncoming: 1

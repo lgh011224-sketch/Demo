@@ -1,7 +1,9 @@
 // 오락실 사격 게임 진행
 //   5 m 앞에 원형 표적지 3×3 (큰 표적 10점 · 중간 20점 · 작은 표적 30점)
 //   오른손 A (키보드 Space) : 시작 → 3·2·1 → 30초 동안 맞힌 점수 합계
-//   발사: 오른손 검지 트리거 / 키보드 F / 하우징 버튼(아두이노 FIRE)
+//   발사: 오른손 검지 트리거 / 키보드 F / 하우징 버튼 (아두이노 "# BUTTON PRESSED" = 발사, "# BUTTON RELEASED" = 다음 발사 가능)
+//   씬 시작 시 아두이노(Arduino/PartsTest)에 "2" (스테퍼 아래로, 이미 아래면 안 보냄) → 1초 뒤 "4" (스크류 8000ms 밀기)
+//   두더지 씬으로 돌아가면 WhackGameManager가 "5" (스크류 당기기)를 보냄
 //   실제 게임: 표적이 누워 있다가 무작위로 튀어 오르고 3~5초 뒤 내려감 (맞히면 바로 쓰러짐)
 //   연습(게임 전·후): 표적이 모두 서 있고, 맞은 표적은 5초 뒤 다시 일어남
 //   게임 중이 아닐 때도 연습 사격 가능 (점수는 안 올라감)
@@ -41,6 +43,18 @@ public class GalleryManager : MonoBehaviour
     [Tooltip("결과를 보여 준 뒤 연습 모드로 돌아가기까지 (s)")]
     public float resultSeconds = 4f;
 
+    [Header("하우징 (아두이노)")]
+    [Tooltip("비워 두면 씬에서 자동으로 찾음")]
+    public ArduinoSerial arduino;
+    [Tooltip("스테퍼 아래로 (PartsTest '2') - 씬 진입 즉시, 이미 내려가 있으면 안 보냄")]
+    public string stepperDownCommand = "2";
+    [Tooltip("스크류 밀기 (PartsTest '4', 스케치의 M3_TEST_MS = 8000ms 동안)")]
+    public string screwPushCommand = "4";
+    [Tooltip("씬 진입 후 스크류 밀기까지 기다리는 시간 (s)")]
+    public float screwPushDelay = 1f;
+    public string buttonPressedMessage = "BUTTON PRESSED";
+    public string buttonReleasedMessage = "BUTTON RELEASED";
+
     [Header("진동 (컨트롤러 + 아두이노 VIB)")]
     [Range(0f, 1f)] public float fireVibration = 1f;
     public float fireVibrationSeconds = 0.07f;
@@ -67,6 +81,7 @@ public class GalleryManager : MonoBehaviour
     int score, hits, shots, best;
     float timeLeft, lastFire = -10f, resultUntil, hudPop = -10f;
     bool prevA, prevTrig;
+    bool buttonArmed = true;   // 하우징 버튼: 뗐다가 다시 눌러야 다음 발사
     ImuInput imu;
     Coroutine countdown;
     Vector3 hudMainScale = Vector3.one;
@@ -78,10 +93,25 @@ public class GalleryManager : MonoBehaviour
         if (imu != null) imu.Fire += Fire;
     }
 
-    void OnDisable() { if (imu != null) imu.Fire -= Fire; }
+    void OnDisable()
+    {
+        if (imu != null) imu.Fire -= Fire;
+        if (arduino != null) arduino.OnLine -= OnArduinoLine;
+    }
 
     void Start()
     {
+        if (arduino == null) arduino = FindAnyObjectByType<ArduinoSerial>();
+        if (arduino != null)
+        {
+            arduino.enabled = true;
+            arduino.OnLine += OnArduinoLine;
+            if (!arduino.IsOpen) arduino.Open();
+            // 스테퍼 아래로 "2" (이미 아래면 안 보냄) → 1초 뒤 스크류 밀기 "4"
+            // 아두이노가 재시작 중이면 ArduinoSerial이 모아 두었다가 준비된 뒤 전송
+            HousingState.SetStepper(arduino, false, "1", stepperDownCommand);
+            StartCoroutine(PushScrewLater());
+        }
         if (hudMain != null) hudMainScale = hudMain.transform.localScale;
         if (popupTemplate != null) popupTemplate.gameObject.SetActive(false);
         if (countdownText != null) countdownText.gameObject.SetActive(false);
@@ -114,6 +144,28 @@ public class GalleryManager : MonoBehaviour
         }
         UpdatePopups();
         UpdateDisplays();
+    }
+
+    IEnumerator PushScrewLater()
+    {
+        yield return new WaitForSeconds(screwPushDelay);
+        HousingState.SetScrew(arduino, true, screwPushCommand, "5");
+    }
+
+    // 하우징 버튼: 눌림 → 발사 (한 번), 뗌 → 다음 발사 가능
+    void OnArduinoLine(string line)
+    {
+        string msg = line.ToUpperInvariant();
+        if (msg.Contains(buttonPressedMessage.ToUpperInvariant()))
+        {
+            if (!buttonArmed) return;
+            buttonArmed = false;
+            Fire();
+        }
+        else if (msg.Contains(buttonReleasedMessage.ToUpperInvariant()))
+        {
+            buttonArmed = true;
+        }
     }
 
     public void ToggleRound()

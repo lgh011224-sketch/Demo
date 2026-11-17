@@ -1,8 +1,10 @@
 // 두더지 게임 전체 진행
 // ── 단계 진행 (useStages, 오락실 방식) ──────────────────────────────
-//   A → 3·2·1·GO! → 1단계(30초): 귀여운 두더지만, 드럼 스틱. 한 마리 5점, 20마리 잡으면 즉시 통과 (못 잡으면 게임 오버)
-//   → (자동) 1단계 CLEAR·점수 → "STAGE 2 / HAMMER TIME!" + 변신 이펙트로 망치로 교체 + 아두이노 hammerCommand(하우징 변형)
-//   → 3·2·1·GO! → 2단계(30초): 초록 두더지만, 쇠 망치 → 끝나면 1단계+2단계 총점
+//   A → 3·2·1·GO! → 1단계(30초): 징그러운 초록 두더지만, 쇠 망치. 한 마리 5점, 20마리 잡으면 즉시 통과 (못 잡으면 게임 오버)
+//   → (자동) 1단계 CLEAR·점수 → "STAGE 2 / CUTE MOLES!" + 변신 이펙트로 드럼 스틱으로 교체 + 아두이노 "2"(스테퍼 아래로, 통과 즉시)
+//   → 3·2·1·GO! → 2단계(30초): 귀여운 두더지만, 드럼 스틱 → 끝나면 1단계+2단계 총점
+// 하우징 (Arduino/PartsTest, 시리얼 숫자 명령): 쇠 망치 = 스테퍼 위 "1", 드럼 스틱 = 스테퍼 아래 "2", 사격장에서 돌아오면 스크류 당기기 "5"
+//   게임 실행 즉시 1단계용 쇠 망치 → "1" 전송 (스테퍼 위로)
 // ────────────────────────────────────────────────────────────────
 // 도구: 드럼 스틱(Wood) / 쇠 망치(Hammer)   ※ 사격(Gun)은 별도 씬으로 분리 예정 (allowGunMode로만 켜짐)
 // 두더지: 귀여운 갈색 두더지 = 드럼 스틱으로만, 초록 우락부락 두더지 = 쇠 망치로만 잡힘.
@@ -33,6 +35,8 @@ public class WhackGameManager : MonoBehaviour
     [Tooltip("체크하면 모듈(아두이노) 버전: 아두이노 HIT 메시지로 타격을 판정합니다")]
     public bool useModule = false;
     public ArduinoSerial arduino;
+    [Tooltip("도구가 바뀔 때 하우징(스테퍼) 명령을 아두이노로 보냄 (컨트롤러 버전에서도)")]
+    public bool sendHousingCommands = true;
 
     [Header("도구")]
     public ToolMode startMode = ToolMode.Wood;
@@ -64,7 +68,7 @@ public class WhackGameManager : MonoBehaviour
     [Range(0f, 1f)] public float badMoleRatio = 0.4f;
 
     [Header("단계 (오락실 방식)")]
-    [Tooltip("켜면 1단계(귀여운 두더지·드럼 스틱) → 2단계(초록 두더지·망치)로 진행. 끄면 예전처럼 섞여 나오는 한 판")]
+    [Tooltip("켜면 1단계(징그러운 초록 두더지·망치) → 2단계(귀여운 두더지·드럼 스틱)로 진행. 끄면 예전처럼 섞여 나오는 한 판")]
     public bool useStages = true;
     public float stage1Seconds = 30f;
     public float stage2Seconds = 30f;
@@ -92,9 +96,15 @@ public class WhackGameManager : MonoBehaviour
     public string buttonMessage = "BTN";
 
     [Header("아두이노로 보내는 명령 (여러 개는 ; 로 구분, 아두이노 오브젝트가 켜져 있으면 전송)")]
-    [Tooltip("드럼 스틱으로 바꿀 때 하우징 형태 변경 명령")]
+    [Tooltip("스테퍼 위로 (쇠 망치·징그러운 두더지, 게임 시작·1단계) - PartsTest 스케치 '1'")]
+    public string stepperUpCommand = "1";
+    [Tooltip("스테퍼 아래로 (드럼 스틱·귀여운 두더지, 2단계 진입 즉시) - PartsTest 스케치 '2'")]
+    public string stepperDownCommand = "2";
+    [Tooltip("사격장에서 돌아왔을 때 스크류 당기기 - PartsTest 스케치 '5'")]
+    public string screwPullCommand = "5";
+    [Tooltip("(예전 HousingControl용, 사용 안 함)")]
     public string woodCommand = "MODE STICK";
-    [Tooltip("쇠 망치로 바꿀 때 하우징 형태 변경 명령 (2단계 진입 시 자동 전송)")]
+    [Tooltip("(예전 HousingControl용, 사용 안 함)")]
     public string hammerCommand = "MODE HAMMER";
     [Tooltip("사격 모드로 바꿀 때 모듈 형태 변경 명령")]
     public string gunCommand = "";
@@ -152,7 +162,7 @@ public class WhackGameManager : MonoBehaviour
         // 컨트롤러 버전이면 아두이노 연결을 시도하지 않음
         // (진동을 아두이노로 보내는 ArduinoHaptics가 켜져 있으면 컨트롤러 버전에서도 연결 유지)
         var haptics = arduino != null ? arduino.GetComponent<ArduinoHaptics>() : null;
-        if (arduino != null && !useModule && (haptics == null || !haptics.sendToArduino))
+        if (arduino != null && !useModule && !sendHousingCommands && (haptics == null || !haptics.sendToArduino))
         {
             arduino.connectOnStart = false;
             arduino.enabled = false;
@@ -166,17 +176,14 @@ public class WhackGameManager : MonoBehaviour
             arduino.OnLine += HandleArduinoLine;
             if (!arduino.IsOpen) arduino.Open();
         }
+        if (arduino != null && sendHousingCommands && !arduino.IsOpen) arduino.Open();
+        // 사격장에서 돌아왔으면 스크류 당기기 "5" (밀려 있을 때만)
+        if (arduino != null && sendHousingCommands) HousingState.SetScrew(arduino, false, "4", screwPullCommand);
         HideAll();
-        SetMode(startMode);
+        // 단계 모드: 1단계가 쇠 망치이므로 처음부터 망치 (→ 스테퍼 맨 위)
+        // 포트를 막 열어 아두이노가 재시작 중이면 ArduinoSerial이 명령을 모아 두었다가 준비되면 보냄
+        SetMode(useStages ? ToolMode.Hammer : startMode);
         PrepareStartFx();
-        // 포트를 열면 아두이노가 재시작되므로, 첫 모드 명령은 잠시 뒤에 다시 보냄
-        if (useModule) Invoke(nameof(ResendModeCommand), 2.5f);
-    }
-
-    void ResendModeCommand()
-    {
-        if (arduino == null) return;
-        arduino.Send(Mode == ToolMode.Wood ? woodCommand : Mode == ToolMode.Hammer ? hammerCommand : gunCommand);
     }
 
     void OnDestroy()
@@ -318,11 +325,12 @@ public class WhackGameManager : MonoBehaviour
             lastResult = "";
         }
 
-        // 하우징 형태 변경 명령 (모듈 버전, 또는 진동 전송용으로 아두이노가 켜져 있을 때)
-        if (arduino != null && (useModule || arduino.enabled))
+        // 하우징 (Arduino/PartsTest): 쇠 망치(징그러운 두더지) = 스테퍼 위 "1", 드럼 스틱(귀여운 두더지) = 스테퍼 아래 "2"
+        // 이미 그 위치면 보내지 않음 (HousingState가 기억)
+        if (arduino != null && sendHousingCommands)
         {
-            string cmd = mode == ToolMode.Wood ? woodCommand : mode == ToolMode.Hammer ? hammerCommand : gunCommand;
-            arduino.Send(cmd);
+            if (mode == ToolMode.Hammer) HousingState.SetStepper(arduino, true, stepperUpCommand, stepperDownCommand);
+            else if (mode == ToolMode.Wood) HousingState.SetStepper(arduino, false, stepperUpCommand, stepperDownCommand);
         }
     }
 
@@ -408,8 +416,8 @@ public class WhackGameManager : MonoBehaviour
         lastResult = "";
         stage = 0; stageScore[1] = stageScore[2] = 0;
         FadeBoard(false);
-        // 단계 모드: 1단계는 드럼 스틱 (망치를 들고 있었다면 변신)
-        if (useStages && Mode != ToolMode.Wood) ChangeTool(ToolMode.Wood);
+        // 단계 모드: 1단계는 쇠 망치 (드럼 스틱을 들고 있었다면 변신 → 스테퍼 맨 위)
+        if (useStages && Mode != ToolMode.Hammer) ChangeTool(ToolMode.Hammer);
         yield return new WaitForSeconds(boardFadeTime);
         while (transformFx != null && transformFx.Playing) yield return null;
 
@@ -451,12 +459,14 @@ public class WhackGameManager : MonoBehaviour
         HideAll();
         if (playHudText != null) playHudText.gameObject.SetActive(false);
         RightHandFollower.Vibrate(0.8f, 0.2f);
+        // 1단계 통과 즉시 스테퍼 아래로 "2" (드럼 스틱 변신 때 SetMode가 다시 보내지 않음)
+        if (arduino != null && sendHousingCommands) HousingState.SetStepper(arduino, false, stepperUpCommand, stepperDownCommand);
         yield return PopText("STAGE 1\nCLEAR!", ColorAt(3), clearShowSeconds * 0.5f, 0.8f, 0.42f);
         yield return PopText($"SCORE  {stageScore[1]}", Color.white, clearShowSeconds * 0.5f, 0.7f, 0.42f);
 
-        // 2단계 안내와 함께 망치로 변신 (아두이노 hammerCommand 전송 → 하우징 변형 시작)
-        ChangeTool(ToolMode.Hammer);
-        yield return PopText("STAGE 2\nHAMMER TIME!", new Color(0.55f, 1f, 0.4f), stage2IntroSeconds, 0.7f, 0.38f);
+        // 2단계 안내와 함께 드럼 스틱으로 변신 (스테퍼 "2"는 통과 즉시 이미 보냄)
+        ChangeTool(ToolMode.Wood);
+        yield return PopText("STAGE 2\nCUTE MOLES!", new Color(1f, 0.75f, 0.55f), stage2IntroSeconds, 0.7f, 0.38f);
         while (transformFx != null && transformFx.Playing) yield return null;
 
         yield return Count321(2);
@@ -637,9 +647,9 @@ public class WhackGameManager : MonoBehaviour
             Mole m = set[Random.Range(0, set.Length)];
             if (m != null && m.IsDown)
             {
-                // 단계 모드: 1단계 = 귀여운 두더지만, 2단계 = 초록 두더지만
+                // 단계 모드: 1단계 = 징그러운 초록 두더지만, 2단계 = 귀여운 두더지만
                 // 단계 없는 한 판: 무작위 (초록 우락부락 = badMoleRatio 확률)
-                MoleKind kind = useStages ? (stage == 2 ? MoleKind.Bad : MoleKind.Normal)
+                MoleKind kind = useStages ? (stage == 1 ? MoleKind.Bad : MoleKind.Normal)
                     : (Mode != ToolMode.Gun && Random.value < badMoleRatio ? MoleKind.Bad : MoleKind.Normal);
                 m.PopUp(moleStayTime, kind);
                 return;
@@ -759,7 +769,7 @@ public class WhackGameManager : MonoBehaviour
             int total = useStages ? stageScore[1] + stageScore[2] : hits * pointsPerMole;
             big = $"SCORE {total}";
             small = useStages && stage > 0
-                ? $"STAGE {stage}   TIME {tl}   " + (stage == 1 ? $"MOLES {stageCatches}/{stage1Goal}" : "GREEN MOLES!")
+                ? $"STAGE {stage}   TIME {tl}   " + (stage == 1 ? $"MOLES {stageCatches}/{stage1Goal}" : "CUTE MOLES!")
                 : $"TIME {tl}   HIT {hits}   MISS {misses}";
             if (tl <= 5) smallColor = new Color(1f, 0.5f, 0.4f);
         }

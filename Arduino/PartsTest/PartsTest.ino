@@ -22,7 +22,7 @@ const int M3_SPEED  = 255;             // 스크류 속도
 // ===== 시험 동작 크기 =====
 const long M1_LONG_STEPS  = 6000;      // 1·2번: 한 번에 움직이는 스텝 수
 const long M1_SHORT_STEPS = 1000;      // 6·7번: 한 번에 움직이는 스텝 수
-const unsigned long M3_TEST_MS  = 500; // 스크류가 한 번에 도는 시간 (ms)
+const unsigned long M3_TEST_MS  = 8000; // 스크류가 한 번에 도는 시간 (ms) - 사격장 진입 시 8000ms 밀기
 
 // ===== 상태 =====
 long m1Left = 0;            // 스테퍼 남은 스텝
